@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Roku Dash Clone</title>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      text-align: center;
+      color: white;
+      font-family: Arial;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      margin: auto;
+      border: 2px solid white;
+      width: 95vw;
+      height: 85vh;
+    }
+
+    button {
+      margin-top: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<h2>Roku Dash Clone</h2>
+<p>Tap / W = up | Hold / S = fall faster | R = restart</p>
+
+<canvas id="game"></canvas>
+<br>
+<button id="restartBtn">Restart</button>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+function resize() {
+  canvas.width = window.innerWidth * 0.95;
+  canvas.height = window.innerHeight * 0.85;
+}
+resize();
+window.addEventListener("resize", resize);
+
+// ===== IMAGES =====
+const playerImg = new Image();
+playerImg.src = "ufo.png";
+
+const droneImg = new Image();
+droneImg.src = "drone.png";
+
+const beamImg = new Image();
+beamImg.src = "beam.jpeg";
+
+const bgImg = new Image();
+bgImg.src = "Background.jpg";
+
+// ===== GAME STATE =====
+let player, obstacles, gameOver, holding;
+let distance = 0;
+let highScore = localStorage.getItem("rokuHighScore") || 0;
+
+// ===== PHYSICS =====
+let gravity = 0.38;
+let fallBoost = 1.4;
+let jumpPower = -11;
+
+// ===== SPEED =====
+let bgX = 0;
+let baseSpeed = 6;
+let maxSpeed = 26;
+
+// ===== RESET =====
+function resetGame() {
+  player = {
+    x: 100,
+    y: canvas.height / 2,
+    width: 90,
+    height: 90,
+    dy: 0
+  };
+
+  obstacles = [];
+  gameOver = false;
+  holding = false;
+  distance = 0;
+  bgX = 0;
+
+  restartBtn.style.display = "none";
+}
+
+// ===== LEVEL =====
+function getLevel() {
+  return Math.floor(distance / 100);
+}
+
+// ===== INPUT =====
+document.addEventListener("mousedown", () => {
+  if (!gameOver) {
+    holding = true;
+    player.dy = jumpPower;
+  }
+});
+
+document.addEventListener("mouseup", () => holding = false);
+
+document.addEventListener("touchstart", () => {
+  if (!gameOver) {
+    holding = true;
+    player.dy = jumpPower;
+  }
+});
+
+document.addEventListener("touchend", () => holding = false);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "w" || e.key === "W") player.dy = jumpPower;
+  if (e.key === "s" || e.key === "S") holding = true;
+  if (e.key === "r" || e.key === "R") resetGame();
+});
+
+document.addEventListener("keyup", (e) => {
+  if (e.key === "s" || e.key === "S") holding = false;
+});
+
+restartBtn.onclick = resetGame;
+
+// ===== SPAWN =====
+function spawnObstacle() {
+  if (gameOver) return;
+
+  let type = Math.random() < 0.7 ? "beam" : "drone";
+
+  if (type === "drone") {
+    obstacles.push({
+      type: "drone",
+      x: canvas.width,
+      y: Math.random() * (canvas.height * 0.6) + 50,
+      width: 65,
+      height: 45,
+      dy: (Math.random() - 0.5) * 6
+    });
+  } else {
+    let fromTop = Math.random() < 0.5;
+
+    let beamHeight = canvas.height * 0.37; // 33% smaller
+    let beamWidth = 80;
+
+    obstacles.push({
+      type: "beam",
+      x: canvas.width,
+      y: fromTop ? 0 : canvas.height - beamHeight,
+      width: beamWidth,
+      height: beamHeight
+    });
+  }
+}
+
+// ===== DYNAMIC SPAWN SYSTEM (FIXED) =====
+let spawnTimer = 850;
+
+function spawnLoop() {
+  if (!gameOver) {
+    spawnObstacle();
+
+    let level = getLevel();
+
+    // 🔥 more obstacles as distance increases
+    spawnTimer = 850 - level * 40;
+
+    if (spawnTimer < 250) spawnTimer = 250;
+
+    // occasional extra obstacle for chaos
+    if (Math.random() < 0.25) spawnObstacle();
+  }
+
+  setTimeout(spawnLoop, spawnTimer);
+}
+
+// ===== UPDATE =====
+function update() {
+  if (gameOver) return;
+
+  let level = getLevel();
+
+  let speed = baseSpeed + level * 0.7;
+  if (speed > maxSpeed) speed = maxSpeed;
+
+  // ===== PLAYER =====
+  player.dy += gravity;
+  if (holding) player.dy += fallBoost;
+
+  player.y += player.dy;
+
+  if (player.y < 0) player.y = 0;
+
+  if (player.y > canvas.height - player.height) {
+    die();
+  }
+
+  // ===== BACKGROUND =====
+  bgX -= speed * 0.5;
+  if (bgX <= -canvas.width) bgX = 0;
+
+  // ===== OBSTACLES =====
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    let obs = obstacles[i];
+
+    obs.x -= speed;
+
+    // 🚁 drone movement
+    if (obs.type === "drone") {
+      obs.y += obs.dy;
+
+      if (obs.y < 0 || obs.y > canvas.height - obs.height) {
+        obs.dy *= -1;
+      }
+    }
+
+    // collision
+    if (
+      player.x + 6 < obs.x + obs.width - 6 &&
+      player.x + player.width - 6 > obs.x &&
+      player.y + 6 < obs.y + obs.height - 6 &&
+      player.y + player.height - 6 > obs.y
+    ) {
+      die();
+    }
+
+    if (obs.x < -obs.width) {
+      obstacles.splice(i, 1);
+    }
+  }
+
+  distance += speed * 0.08;
+}
+
+// ===== DEATH =====
+function die() {
+  gameOver = true;
+
+  if (distance > highScore) {
+    highScore = Math.floor(distance);
+    localStorage.setItem("rokuHighScore", highScore);
+  }
+
+  restartBtn.style.display = "inline-block";
+}
+
+// ===== DRAW =====
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.drawImage(bgImg, bgX, 0, canvas.width, canvas.height);
+  ctx.drawImage(bgImg, bgX + canvas.width, 0, canvas.width, canvas.height);
+
+  ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
+
+  obstacles.forEach(obs => {
+    if (obs.type === "drone") {
+      ctx.drawImage(droneImg, obs.x, obs.y, obs.width, obs.height);
+    } else {
+      ctx.drawImage(beamImg, obs.x, obs.y, obs.width, obs.height);
+    }
+  });
+
+  ctx.fillStyle = "white";
+  ctx.font = "20px Arial";
+  ctx.fillText("Distance: " + Math.floor(distance), 10, 25);
+  ctx.fillText("Level: " + getLevel(), 10, 50);
+  ctx.fillText("High Score: " + highScore, 10, 75);
+
+  if (gameOver) {
+    ctx.font = "40px Arial";
+    ctx.fillText("GAME OVER", canvas.width / 2 - 120, canvas.height / 2);
+  }
+}
+
+// ===== LOOP =====
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+resetGame();
+bgImg.onload = () => {
+  loop();
+  spawnLoop(); // 🚀 starts dynamic difficulty system
+};
+</script>
+
+</body>
+</html>
